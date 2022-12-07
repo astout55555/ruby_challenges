@@ -45,7 +45,7 @@ loop with day_of_month counter from 1 on
 
 require 'date'
 
-## original solution: completed in 70 minutes
+## my original solution: completed in 70 minutes
 
 # triggers 3 rubocop complaints (4 with commenting increasing a line's length)
 # rubocop:disable Layout/LineLength
@@ -116,6 +116,9 @@ class Meetup
   end
 
   def day(day_of_week, descriptor)
+    day_of_week = day_of_week.downcase
+    descriptor = descriptor.downcase
+
     day_of_month = find_day_of_month(day_of_week, descriptor)
 
     begin
@@ -128,21 +131,21 @@ class Meetup
   private
 
   def find_day_of_month(day_of_week, descriptor)
-    day_of_month = find_first_day_in_month(day_of_week.downcase)
+    day_of_month = find_first_in_month(day_of_week)
 
-    if descriptor.downcase == 'teenth'
+    if descriptor == 'teenth'
       day_of_month += 7 until (13..19).include?(day_of_month)
-    elsif descriptor.downcase == 'last'
-      day_of_month = find_last_day_in_month(day_of_week.downcase)
+    elsif descriptor == 'last'
+      day_of_month = find_last_in_month(day_of_week)
     else
       descriptors = ['first', 'second', 'third', 'fourth', 'fifth']
-      day_of_month += 7 * descriptors.index(descriptor.downcase)
+      day_of_month += 7 * descriptors.index(descriptor)
     end
 
     day_of_month
   end
 
-  def find_first_day_in_month(day_of_week)
+  def find_first_in_month(day_of_week)
     day_of_month = 1
     loop do
       date = Date.civil(@year, @month, day_of_month)
@@ -151,16 +154,119 @@ class Meetup
     end
   end
 
-  def find_last_day_in_month(day_of_week)
+  def find_last_in_month(day_of_week)
     day_of_month = 32
     loop do
       day_of_month -= 1
       begin
         date = Date.civil(@year, @month, day_of_month)
-        return day_of_month if date.wday == DAYS_OF_WEEK.index(day_of_week)
       rescue Date::Error
-        next # useless, but avoids rubocop complaining about suppressed error
+        next
       end
+      return day_of_month if date.wday == DAYS_OF_WEEK.index(day_of_week)
     end
+  end
+end
+
+## LS Solution:
+
+# starts by identifying first of possible days based on descriptor
+class Meetup
+  SCHEDULE_START_DAY = {
+    'first' => 1,
+    'second' => 8,
+    'third' => 15,
+    'fourth' => 22,
+    'fifth' => 29,
+    'teenth' => 13,
+    'last' => nil # last is nil because there is no set first 'last' day
+  }.freeze # nil avoids returning the first operand in the || statement below
+
+  def initialize(year, month)
+    @year = year
+    @month = month
+    @days_in_month = Date.civil(@year, @month, -1).day
+  end # uses `-1` to find last day of month--very useful!
+
+  def day(weekday, schedule)
+    weekday = weekday.downcase # gets the downcasing out of the way up front
+    schedule = schedule.downcase
+
+    first_possible_day = first_day_to_search(schedule) # pulls from hash above
+    last_possible_day = [first_possible_day + 6, @days_in_month].min
+    # using #min with @days_in_month avoids overshooting end of month
+
+    # #detect returns first element for which block returns a truthy value
+    (first_possible_day..last_possible_day).detect do |day| # aliased as #find
+      date = Date.civil(@year, @month, day)
+      break date if day_of_week_is?(date, weekday)
+    end # didn't know you could use break to interrupt iteration and return
+  end
+
+  private
+
+  def first_day_to_search(schedule)
+    SCHEDULE_START_DAY[schedule] || (@days_in_month - 6) # 'last' returns 2nd
+  end
+
+  # rubocop:disable Metrics/CyclomaticComplexity
+  def day_of_week_is?(date, weekday)
+    case weekday
+    when 'monday'    then date.monday?
+    when 'tuesday'   then date.tuesday?
+    when 'wednesday' then date.wednesday?
+    when 'thursday'  then date.thursday?
+    when 'friday'    then date.friday?
+    when 'saturday'  then date.saturday?
+    when 'sunday'    then date.sunday?
+    end
+  end
+end
+
+## Nimish Tolasaria (LS student) had a really interesting solution which used #send:
+
+class Meetup
+  def initialize(year, month)
+    @date = Date.civil(year, month)
+  end
+
+  def day(weekday, schedule)
+    weekday = weekday.downcase.concat('?')
+    send(schedule.downcase, weekday) 
+  end # calls the appropriate private method with a 'monday?' formatted arg
+
+  private
+
+  def first(weekday)
+    start_date = @date
+    start_date += 1 while !start_date.send(weekday) # arg used to call #monday?
+    start_date
+  end
+
+  def second(weekday)
+    first(weekday) + 7
+  end
+
+  def third(weekday)
+    first(weekday) + 14
+  end
+
+  def fourth(weekday)
+    first(weekday) + 21
+  end
+
+  def fifth(weekday)
+    possible_date = fourth(weekday) + 7 # using `+ 7` increments date by 7 days
+    possible_date if possible_date.month == @date.month # did it roll to next?
+  end # no error because date is not constructed with bad num, month rolls over
+
+  def last(weekday)
+    fifth(weekday) || fourth(weekday) # this is smart
+  end
+
+  def teenth(weekday)
+    start_date = @date + 12
+    start_date += 1 while !start_date.send(weekday)
+    start_date
   end
 end
